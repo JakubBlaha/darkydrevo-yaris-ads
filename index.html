@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dárky Dřevo – reklama Toyota Yaris</title>
+<style>
+  @font-face {
+    font-family: "Archivo Variable"; font-weight: 400 800; font-stretch: 100% 125%;
+    src: url(assets/archivo-latin.DJ4PpzkO.woff2) format("woff2-variations");
+    unicode-range: U+20-7E, U+A0-FF, U+2013-2014, U+2018-201A, U+201C-201E, U+2022, U+2026, U+20AC, U+2122, U+2212;
+  }
+  @font-face {
+    font-family: "Archivo Variable"; font-weight: 400 800; font-stretch: 100% 125%;
+    src: url(assets/archivo-czech-slovak.D-OOGwHJ.woff2) format("woff2-variations");
+    unicode-range: U+10C-10F, U+11A-11B, U+139-13A, U+13D-13E, U+147-148, U+154-155, U+158-159, U+160-161, U+164-165, U+16E-16F, U+17D-17E;
+  }
+  :root {
+    --ad-w: 1080;
+    --ad-h: 1920;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: #040405; overflow: hidden; }
+  body.native-size { overflow: auto; place-items: start center; }
+  body {
+    display: grid;
+    place-items: center;
+    font-family: "Archivo Variable", system-ui, -apple-system, sans-serif;
+    color: #ebebeb;
+  }
+  canvas {
+    width: min(100vw, calc(100vh * var(--ad-w) / var(--ad-h)));
+    height: min(100vh, calc(100vw * var(--ad-h) / var(--ad-w)));
+    background: #08080a;
+    display: block;
+    outline: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 24px 90px rgba(0, 0, 0, 0.85);
+  }
+  body.native-size canvas {
+    width: calc(var(--ad-w) * 1px);
+    height: calc(var(--ad-h) * 1px);
+  }
+  #bar {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 10px 8px 14px;
+    background: rgba(16, 16, 20, 0.86);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    font-size: 13px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    max-width: calc(100vw - 32px);
+  }
+  #status { color: #b8b4b0; white-space: nowrap; }
+  #time {
+    font-variant-numeric: tabular-nums;
+    color: #d6d2ce;
+    min-width: 78px;
+    text-align: center;
+    font-size: 12px;
+  }
+  #scrub {
+    width: 110px;
+    accent-color: #c1272d;
+    cursor: pointer;
+  }
+  #bar button {
+    font: inherit;
+    font-weight: 600;
+    color: #fff;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    padding: 7px 11px;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  #bar button:hover { background: rgba(255, 255, 255, 0.16); }
+  #bar button.active {
+    background: rgba(193, 39, 45, 0.28);
+    border-color: rgba(193, 39, 45, 0.7);
+  }
+  #bar button#rec {
+    background: #a62b2b;
+    border-color: transparent;
+    padding: 7px 13px;
+  }
+  #bar button#rec:hover { background: #c1272d; }
+  #bar button:disabled { opacity: 0.55; cursor: default; }
+  @media (max-width: 760px) {
+    #scrub, #time { display: none; }
+  }
+</style>
+</head>
+<body>
+<canvas id="stage" width="1080" height="1920"></canvas>
+<div id="bar">
+  <span id="status"></span>
+  <button id="play" title="Přehrát / Pozastavit (Mezerník)">❚❚</button>
+  <input id="scrub" type="range" min="0" max="12.8" step="0.01" value="0" aria-label="Časová osa">
+  <span id="time">0.0 / 12.8 s</span>
+  <button id="fmt" title="Přepnout formát 9:16 (1080×1920) / 4:5 (1080×1350)">9:16 · 1080×1920</button>
+  <button id="safe" title="Zobrazit safe zónu Meta 269–1248 px (neukládá se do videa)">Safe zóna</button>
+  <button id="scale" title="Přepnout měřítko náhledu (Přizpůsobit / 1:1 px)">1:1</button>
+  <button id="rec">Export MP4 (R)</button>
+</div>
+<script src="assets/mp4-muxer.min.js"></script>
+<script src="ad.js"></script>
+</body>
+</html>
