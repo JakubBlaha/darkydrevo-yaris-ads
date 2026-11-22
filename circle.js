@@ -27,11 +27,11 @@
   const SONG_OFFSET = qs.has('offset') ? +qs.get('offset') : 10.0;
   const BEAT0 = qs.has('phase') ? +qs.get('phase') : 0.260;
 
-  const BEAM0 = BEAT0 + 5.8 * BEAT;   // spotlight ignites during silent pre-drop pause (2.84 s)
-  const ARRIVE0 = BEAT0 + 6.6 * BEAT; // Chosen Wooden Yaris descends during the suspense pause
-  const LAND = BEAT0 + 9 * BEAT;      // EXACT 4.260 s (song 14.260 s BASS DROP!) -> Chosen One SLAMS DOWN!
-  const BURN0 = LAND + 0.1 * BEAT;    // fast laser ember ignition sweep right after drop
-  const BURN1 = LAND + 4.2 * BEAT;
+  const ARRIVE0 = BEAT0 + 0.5 * BEAT; // blank birch board descends into the center of the circle
+  const LAND = BEAT0 + 1.8 * BEAT;    // blank board lands in center as laser gantry lowers
+  const SCAN0 = BEAT0 + 2 * BEAT;     // Beat 2 (1.149 s): industrial laser gantry starts cutting/engraving!
+  const SCAN1 = BEAT0 + 9 * BEAT;     // Beat 9 (4.260 s = EXACT song 14.260 s BASS DROP!): laser finishes -> BOOM!
+  const DROP_T = SCAN1;               // heavenly golden spotlight & shockwave erupt on the bass drop!
   const HERO0 = BEAT0 + 17 * BEAT;    // Beat 17 (7.816 s -> 2 bars after drop, Part 2 swaps start!)
   const END0 = BEAT0 + 25 * BEAT;     // Beat 25 (11.371 s -> End card)
   const T = BEAT0 + 33 * BEAT;        // Beat 33 (14.927 s -> exact 6 bars after drop!)
@@ -60,9 +60,13 @@
       npcW: 195,
       heroW: 388,
       heroFloorOffset: 52,
+      railBaseY: 562,
+      telY: 1156,
+      telW: 560,
       endScale: 0.78,
       peakNpc: 46,
       peakHero: 72,
+      peakHeroScan: 36,
       priceY: 1146,
       priceSize: 94,
       tagsHeroY: 1210,
@@ -98,9 +102,13 @@
       npcW: 215,
       heroW: 440,
       heroFloorOffset: 62,
+      railBaseY: 412,
+      telY: 1125,
+      telW: 600,
       endScale: 0.78,
       peakNpc: 54,
       peakHero: 86,
+      peakHeroScan: 42,
       priceY: 1118,
       priceSize: 112,
       tagsHeroY: 1212,
@@ -147,8 +155,9 @@
   });
 
   let plaque = null, blank = null, logo = null;
-  let gallery = [];           // { img, cutout } swapped on every bounce in Act 3 & End Card
+  let gallery = [];           // { img, cutout } swapped every 2 jumps in Act 3 & End Card
   let npcCanvas = null;       // desaturated monochrome cool-grey "ordinary" Yaris
+  let engraveMap = null, MW = 0, MH = 0;
   let emberCanvas = null;     // molten burn embers for the Chosen One
 
   const GALLERY_SPECS = [
@@ -205,29 +214,32 @@
       nCtx.fillRect(0, 0, nw, nh);
     }
 
-    // 2. Pixel-accurate molten ember map for the Chosen One's laser ignition
-    const mw = 360, mh = Math.max(1, Math.round(mw * plaqueAspect));
-    const cA = document.createElement('canvas'); cA.width = mw; cA.height = mh;
-    const cB = document.createElement('canvas'); cB.width = mw; cB.height = mh;
+    // 2. Pixel-accurate molten ember map + burn density map for live laser cutting
+    MW = 360;
+    MH = Math.max(1, Math.round(MW * plaqueAspect));
+    const cA = document.createElement('canvas'); cA.width = MW; cA.height = MH;
+    const cB = document.createElement('canvas'); cB.width = MW; cB.height = MH;
     const gA = cA.getContext('2d', { willReadFrequently: true });
     const gB = cB.getContext('2d', { willReadFrequently: true });
-    gA.drawImage(blankImg, 0, 0, mw, mh);
-    gB.drawImage(plaqueImg, 0, 0, mw, mh);
+    gA.drawImage(blankImg, 0, 0, MW, MH);
+    gB.drawImage(plaqueImg, 0, 0, MW, MH);
 
     try {
-      const dA = gA.getImageData(0, 0, mw, mh).data;
-      const dB = gB.getImageData(0, 0, mw, mh).data;
+      const dA = gA.getImageData(0, 0, MW, MH).data;
+      const dB = gB.getImageData(0, 0, MW, MH).data;
+      engraveMap = new Float32Array(MW * MH);
       emberCanvas = document.createElement('canvas');
-      emberCanvas.width = mw; emberCanvas.height = mh;
+      emberCanvas.width = MW; emberCanvas.height = MH;
       const eCtx = emberCanvas.getContext('2d');
-      const eImg = eCtx.createImageData(mw, mh);
+      const eImg = eCtx.createImageData(MW, MH);
       const eD = eImg.data;
-      for (let p = 0; p < mw * mh; p++) {
+      for (let p = 0; p < MW * MH; p++) {
         const i = p * 4;
         if (dB[i + 3] < 128) continue;
         const lA = 0.299 * dA[i] + 0.587 * dA[i + 1] + 0.114 * dA[i + 2];
         const lB = 0.299 * dB[i] + 0.587 * dB[i + 1] + 0.114 * dB[i + 2];
         const val = clamp(((lA - lB) / 255 - 0.03) / 0.42);
+        engraveMap[p] = val;
         if (val > 0.06) {
           const hot = Math.pow(val, 0.8);
           eD[i] = 255;
@@ -238,8 +250,41 @@
       }
       eCtx.putImageData(eImg, 0, 0);
     } catch {
+      engraveMap = null;
       emberCanvas = null;
     }
+  }
+
+  function sampleBurn(nx, ny) {
+    if (engraveMap) {
+      const x = clamp(Math.floor(nx * MW), 0, MW - 1);
+      const y = clamp(Math.floor(ny * MH), 0, MH - 1);
+      let sum = 0, cnt = 0;
+      for (let dx = -1; dx <= 1; dx++) {
+        sum += engraveMap[y * MW + clamp(x + dx, 0, MW - 1)];
+        cnt++;
+      }
+      return sum / cnt;
+    }
+    const inCar = nx > 0.08 && nx < 0.92 && ny > 0.14 && ny < 0.76;
+    const inLogo = nx > 0.18 && nx < 0.82 && ny > 0.80 && ny < 0.94;
+    if (inLogo) return 0.74;
+    if (inCar) return 0.4 + 0.3 * Math.abs(Math.sin(nx * 19 + ny * 11));
+    return 0.06;
+  }
+
+  function getScanState(t) {
+    const reveal = prog(t, SCAN0, SCAN1);
+    const burning = t >= SCAN0 && t < SCAN1;
+    const sweepCycle = Math.max(0, t - SCAN0) * 5.6;
+    const passIdx = Math.floor(sweepCycle);
+    const passFrac = sweepCycle - passIdx;
+    const goingRight = (passIdx % 2) === 0;
+    const uX = goingRight ? passFrac : (1 - passFrac);
+    const nx = 0.03 + 0.94 * uX;
+    const ny = reveal;
+    const intensity = burning ? sampleBurn(nx, ny) : 0;
+    return { reveal, burning, goingRight, nx, ny, intensity };
   }
 
   // ---- background ----
@@ -279,10 +324,46 @@
     b.fillRect(0, 0, W, H);
   }
 
-  // ---- particles (golden sparks, landing shockwaves, rising embers) ----
+  // ---- particles (laser sparks, wood smoke, golden embers, landing shockwaves) ----
   let sparks = [];
+  let laserSparks = [];
+  let smoke = [];
   let waves = [];
   const rnd = (a, b) => a + Math.random() * (b - a);
+
+  function emitLaserSparks(x, y, intensity, boost = 1) {
+    const count = Math.round((intensity > 0.45 ? 4 : intensity > 0.18 ? 2 : 1) * boost);
+    for (let i = 0; i < count; i++) {
+      const a = rnd(-Math.PI * 0.94, -Math.PI * 0.06);
+      const sp = rnd(140, 560) * (0.55 + 0.7 * intensity);
+      laserSparks.push({
+        x: x + rnd(-4, 4),
+        y: y + rnd(-3, 3),
+        vx: Math.cos(a) * sp,
+        vy: Math.sin(a) * sp - 80,
+        g: 1250,
+        life: 0,
+        max: rnd(0.18, 0.46),
+        size: rnd(1.8, 3.6),
+        hot: Math.random() < 0.42,
+      });
+    }
+  }
+
+  function emitSmoke(x, y, intensity) {
+    if (intensity < 0.16 || Math.random() > 0.25 + intensity * 0.55) return;
+    smoke.push({
+      x: x + rnd(-6, 6),
+      y: y - rnd(4, 10),
+      vx: rnd(14, 44),
+      vy: -rnd(44, 96),
+      r: rnd(10, 20),
+      grow: rnd(38, 68),
+      life: 0,
+      max: rnd(0.8, 1.45),
+      alpha: 0.07 + intensity * 0.12,
+    });
+  }
 
   function emitLandingBurst(x, y, power = 1) {
     const n = Math.round(32 * power);
@@ -328,11 +409,46 @@
     }
     sparks = sparks.filter(p => p.life < p.max);
 
+    for (const lp of laserSparks) {
+      lp.life += dt;
+      lp.vy += lp.g * dt;
+      lp.x += lp.vx * dt;
+      lp.y += lp.vy * dt;
+    }
+    laserSparks = laserSparks.filter(lp => lp.life < lp.max);
+
+    for (const s of smoke) {
+      s.life += dt;
+      s.x += s.vx * dt + Math.sin(s.life * 4.5 + s.r) * 14 * dt;
+      s.y += s.vy * dt;
+      s.r += s.grow * dt;
+    }
+    smoke = smoke.filter(s => s.life < s.max);
+
     for (const w of waves) {
       w.life += dt;
       w.r = lerp(45, w.maxR, easeOut3(w.life / w.max));
     }
     waves = waves.filter(w => w.life < w.max);
+  }
+
+  function drawSmoke() {
+    if (!smoke.length) return;
+    ctx.save();
+    for (const s of smoke) {
+      const k = s.life / s.max;
+      const a = s.alpha * Math.sin(Math.min(1, k * 3.5) * Math.PI * 0.5) * (1 - k);
+      if (a <= 0.002) continue;
+      const g = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.r);
+      g.addColorStop(0, `rgba(225,205,188,${a})`);
+      g.addColorStop(0.5, `rgba(175,152,135,${a * 0.45})`);
+      g.addColorStop(1, 'rgba(120,105,98,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   function drawWaves() {
@@ -355,7 +471,7 @@
   }
 
   function drawSparks() {
-    if (!sparks.length) return;
+    if (!sparks.length && !laserSparks.length) return;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     for (const p of sparks) {
@@ -366,6 +482,18 @@
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.size * (0.4 + 0.6 * a), 0, Math.PI * 2);
       ctx.fill();
+    }
+    for (const lp of laserSparks) {
+      const a = 1 - lp.life / lp.max;
+      ctx.strokeStyle = lp.hot
+        ? `rgba(255,244,205,${a})`
+        : `rgba(255,135,48,${a * 0.95})`;
+      ctx.lineWidth = lp.size * (0.4 + 0.6 * a);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(lp.x, lp.y);
+      ctx.lineTo(lp.x - lp.vx * 0.024, lp.y - lp.vy * 0.024);
+      ctx.stroke();
     }
     ctx.restore();
   }
@@ -595,14 +723,14 @@
     c.stroke();
   }
 
-  function updateHeroBuffer(t, b) {
+  function updateHeroBuffer(t, b, scan) {
     const hw = L.heroW;
     const hh = Math.round(hw * plaqueAspect);
     const c = hCtx;
     c.clearRect(0, 0, heroBuf.width, heroBuf.height);
     const x = PAD, y = PAD, r = 16;
 
-    // Part 2 (Beat 16+): Chosen One morphs to a new real gallery photo every 2 jumps!
+    // Part 2 (Beat 17+): Chosen One morphs to a new real gallery photo every 2 jumps!
     if (t >= SWAP0 && gallery.length > 0) {
       const beatsSinceSwap = Math.floor((t - SWAP0) / BEAT);
       const idx = Math.floor(beatsSinceSwap / 2) % gallery.length;
@@ -625,56 +753,54 @@
     roundRect(c, x, y, hw, hh, r);
     c.clip();
 
-    // Base birch + engraved reveal during ignition sweep (or full plaque after BURN1)
-    const burnP = prog(t, BURN0, BURN1);
-    if (t < BURN0) {
-      c.drawImage(blank, x, y, hw, hh);
-    } else if (burnP < 1) {
-      c.drawImage(blank, x, y, hw, hh);
+    // 1. Raw birch base
+    c.drawImage(blank, x, y, hw, hh);
+
+    // 2. Laser-engraved Yaris revealed right behind the active laser nozzle tip
+    if (scan.reveal > 0) {
+      const scanY = y + hh * scan.reveal;
+      const sxLocal = x + hw * scan.nx;
+      const bandH = 6;
+
       c.save();
       c.beginPath();
-      c.rect(x, y, hw, hh * burnP);
+      if (scan.reveal >= 1) {
+        c.rect(x, y, hw, hh);
+      } else {
+        const fullH = Math.max(0, hh * scan.reveal - bandH);
+        if (fullH > 0) c.rect(x, y, hw, fullH);
+        const rowY = y + fullH;
+        const rowH = Math.min(bandH, hh * scan.reveal - fullH);
+        if (scan.goingRight) {
+          c.rect(x, rowY, sxLocal - x, rowH);
+        } else {
+          c.rect(sxLocal, rowY, (x + hw) - sxLocal, rowH);
+        }
+      }
       c.clip();
       c.drawImage(plaque, x, y, hw, hh);
       c.restore();
 
-      // Molten glowing laser ignition band sweeping down the Chosen One!
-      const sy = y + hh * burnP;
-      c.save();
-      c.globalCompositeOperation = 'lighter';
-      if (emberCanvas) {
-        const strips = 6, bandH = 56, stepH = bandH / strips;
+      // Pixel-accurate cooling molten embers trailing behind the laser scanline
+      const coolFade = scan.reveal < 1 ? 1 : (1 - prog(t, SCAN1, SCAN1 + 1.6 * BEAT));
+      if (coolFade > 0 && emberCanvas) {
+        c.save();
+        c.globalCompositeOperation = 'lighter';
+        const strips = 8, totalH = 54, stepH = totalH / strips;
         for (let i = 0; i < strips; i++) {
-          const topY = sy - (i + 1) * stepH;
+          const topY = scanY - (i + 1) * stepH;
           const cTop = Math.max(y, topY);
-          const cBot = Math.min(sy, topY + stepH + 0.5);
+          const cBot = Math.min(scanY, topY + stepH + 0.5);
           if (cBot <= cTop) continue;
+          const k = 1 - i / strips;
           c.save();
           c.beginPath();
           c.rect(x, cTop, hw, cBot - cTop);
           c.clip();
-          c.globalAlpha = Math.pow(1 - i / strips, 1.8) * 0.95;
+          c.globalAlpha = Math.pow(k, 1.9) * 0.92 * coolFade;
           c.drawImage(emberCanvas, x, y, hw, hh);
           c.restore();
         }
-      }
-      // Hot laser scanline
-      const lg = c.createLinearGradient(0, sy - 22, 0, sy + 6);
-      lg.addColorStop(0, 'rgba(255,140,40,0)');
-      lg.addColorStop(0.8, 'rgba(255,200,110,0.9)');
-      lg.addColorStop(1, 'rgba(255,90,40,0)');
-      c.fillStyle = lg;
-      c.fillRect(x, sy - 22, hw, 28);
-      c.restore();
-    } else {
-      c.drawImage(plaque, x, y, hw, hh);
-      // Cooling ember glow right after burn finishes
-      const cool = 1 - prog(t, BURN1, BURN1 + 1.5 * BEAT);
-      if (cool > 0 && emberCanvas) {
-        c.save();
-        c.globalCompositeOperation = 'lighter';
-        c.globalAlpha = cool * 0.65;
-        c.drawImage(emberCanvas, x, y, hw, hh);
         c.restore();
       }
     }
@@ -693,12 +819,12 @@
     c.fillRect(-140, -hh, 280, hh * 2);
     c.restore();
 
-    // Completion golden flash
-    const fl = 1 - prog(t, BURN1, BURN1 + 1.1 * BEAT);
-    if (t >= BURN1 && fl > 0) {
+    // Completion golden flash right on the 14.26 s bass drop (SCAN1)!
+    const fl = 1 - prog(t, SCAN1, SCAN1 + 1.2 * BEAT);
+    if (t >= SCAN1 && fl > 0) {
       c.save();
       c.globalCompositeOperation = 'lighter';
-      c.globalAlpha = Math.pow(fl, 1.5) * 0.5;
+      c.globalAlpha = Math.pow(fl, 1.5) * 0.55;
       c.fillStyle = '#ffe5ad';
       c.fillRect(x, y, hw, hh);
       c.restore();
@@ -707,47 +833,70 @@
     c.restore();
 
     // Radiant warm golden-birch rim border
-    c.strokeStyle = 'rgba(255, 224, 155, 0.55)';
+    c.strokeStyle = t >= SCAN1 ? 'rgba(255, 224, 155, 0.65)' : 'rgba(255, 235, 205, 0.25)';
     c.lineWidth = 2.5;
     roundRect(c, x + 1, y + 1, hw - 2, hh - 2, r - 1);
     c.stroke();
   }
 
-  function drawChosenOne(t, floorY, scale, kick) {
+  function getHeroBounce(t, scale) {
+    if (t < LAND) {
+      const u = prog(t, ARRIVE0, LAND);
+      const extraDropH = 440 * Math.pow(1 - u, 2.2);
+      const sy = 1 + 0.22 * Math.pow(u, 1.5);
+      return { h: extraDropH, sy, sx: Math.pow(sy, -0.6), lean: 0, u: 0, kick: 0, intensity: 0.6 };
+    }
+    const scanning = t >= SCAN0 && t < SCAN1;
+    const intensity = scanning ? 0.68 : 0.96;
+    const peak = (scanning ? L.peakHeroScan : L.peakHero) * scale;
+    const b = bounceSample(t, intensity, peak, 0);
+    return { ...b, intensity, peak };
+  }
+
+  function heroPointToStage(t, floorY, scale, nx, ny) {
+    const base = getHeroBounce(t, scale);
+    const v = 1 - ny;
+    const s = t >= LAND
+      ? bounceSample(Math.max(LAND, t - v * 0.042), base.intensity, base.peak, 0)
+      : base;
+    const hw = L.heroW;
+    const hh = Math.round(hw * plaqueAspect);
+    const avgSy = (base.sy + s.sy) * 0.5;
+    const totalH = hh * scale * avgSy;
+    const bottomY = floorY - base.h;
+    const y = bottomY - v * totalH;
+
+    const belly = 1 + (1 - s.sy) * 0.26 * Math.sin(Math.PI * v);
+    const sliceW = hw * scale * s.sx * belly;
+    const shearX = s.lean * 42 * v * v * scale;
+    const x = CX + shearX + (nx - 0.5) * sliceW;
+    return { x, y };
+  }
+
+  function drawChosenOne(t, floorY, scale, kick, scan) {
     if (t < ARRIVE0) return null;
 
     const landed = t >= LAND;
-    let b;
-    let extraDropH = 0;
-    let appearAlpha = 1;
+    const b = getHeroBounce(t, scale);
+    const appearAlpha = landed ? 1 : clamp(prog(t, ARRIVE0, LAND) * 4);
 
-    if (!landed) {
-      // Dramatic descent straight down the heavenly spotlight beam!
-      const u = prog(t, ARRIVE0, LAND);
-      appearAlpha = clamp(u * 4);
-      extraDropH = 520 * Math.pow(1 - u, 2.2);
-      const sy = 1 + 0.24 * Math.pow(u, 1.5);
-      b = { h: extraDropH, sy, sx: Math.pow(sy, -0.6), lean: 0, u: 0, kick: 0 };
-    } else {
-      // Full unhinged Bouncing Yaris rubber physics synced to the circle!
-      const intensity = 0.96;
-      b = bounceSample(t, intensity, L.peakHero * scale, 0);
+    updateHeroBuffer(t, b, scan);
+
+    // Radiant golden aura behind the Chosen Wooden Yaris once laser engraving completes on the drop!
+    if (t >= SCAN1 - 0.2 * BEAT) {
+      const auraA = prog(t, SCAN1 - 0.2 * BEAT, SCAN1 + 0.8 * BEAT);
+      const auraY = floorY - b.h - (L.heroW * plaqueAspect * scale * 0.5);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = auraA * (0.36 + 0.16 * kick);
+      const ag = ctx.createRadialGradient(CX, auraY, 20, CX, auraY, L.heroW * scale * 0.85);
+      ag.addColorStop(0, 'rgba(255, 210, 115, 0.85)');
+      ag.addColorStop(0.5, 'rgba(193, 39, 45, 0.35)');
+      ag.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = ag;
+      ctx.fillRect(CX - 360, auraY - 300, 720, 600);
+      ctx.restore();
     }
-
-    updateHeroBuffer(t, b);
-
-    // Radiant golden aura behind the Chosen Wooden Yaris
-    const auraY = floorY - b.h - (L.heroW * plaqueAspect * scale * 0.5);
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.globalAlpha = appearAlpha * (0.34 + 0.16 * kick);
-    const ag = ctx.createRadialGradient(CX, auraY, 20, CX, auraY, L.heroW * scale * 0.85);
-    ag.addColorStop(0, 'rgba(255, 210, 115, 0.85)');
-    ag.addColorStop(0.5, 'rgba(193, 39, 45, 0.35)');
-    ag.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = ag;
-    ctx.fillRect(CX - 360, auraY - 300, 720, 600);
-    ctx.restore();
 
     // Dynamic contact shadow
     const liftNorm = clamp(b.h / 260);
@@ -777,7 +926,7 @@
     for (let i = 0; i < SLICES; i++) {
       const v = (i + 0.5) / SLICES;
       const s = landed
-        ? bounceSample(Math.max(LAND, t - v * 0.042), 0.96, L.peakHero * scale, 0)
+        ? bounceSample(Math.max(LAND, t - v * 0.042), b.intensity, b.peak, 0)
         : b;
       sliceSy[i] = s.sy;
       const belly = 1 + (1 - s.sy) * 0.26 * Math.sin(Math.PI * v);
@@ -805,6 +954,115 @@
     ctx.restore();
 
     return b;
+  }
+
+  // ---- industrial laser gantry & volumetric beam cutting the center plaque inside the circle! ----
+  function drawLaser(t, floorY, scale, scan) {
+    const enter = easeOut3(prog(t, SCAN0 - 0.7 * BEAT, SCAN0));
+    const exit = easeInOut(prog(t, SCAN1, SCAN1 + 0.85 * BEAT));
+    const vis = Math.min(prog(t, SCAN0 - 0.7 * BEAT, SCAN0 - 0.1 * BEAT), 1 - exit);
+    if (vis <= 0) return null;
+
+    const target = heroPointToStage(t, floorY, scale, scan.nx, scan.ny);
+    const sx = target.x;
+    const sy = target.y;
+
+    const railY = L.railBaseY - (1 - enter) * 130 - exit * 150;
+    const railW = Math.min(W - 80, L.heroW + 220);
+    const railX = CX - railW / 2;
+
+    ctx.save();
+    ctx.globalAlpha = vis;
+
+    // Anodized gantry rail spanning over the center of the circle
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.75)';
+    ctx.shadowBlur = 22;
+    ctx.shadowOffsetY = 10;
+    const rg = ctx.createLinearGradient(0, railY, 0, railY + 22);
+    rg.addColorStop(0, '#2e2e34');
+    rg.addColorStop(0.4, '#1a1a1f');
+    rg.addColorStop(1, '#0e0e12');
+    ctx.fillStyle = rg;
+    roundRect(ctx, railX, railY, railW, 22, 7);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.fillStyle = 'rgba(255,255,255,0.14)';
+    ctx.fillRect(railX + 10, railY + 2, railW - 20, 2);
+
+    // Laser carriage tracking sx along the rail
+    const hx = clamp(sx, railX + 40, railX + railW - 40);
+    const hy = railY - 14;
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.7)';
+    ctx.shadowBlur = 16;
+    ctx.shadowOffsetY = 8;
+    ctx.fillStyle = '#151519';
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.lineWidth = 2;
+    roundRect(ctx, hx - 30, hy, 60, 48, 9);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.fillStyle = scan.burning ? '#ff3c38' : C.brand;
+    roundRect(ctx, hx - 14, hy + 29, 28, 6, 3);
+    ctx.fill();
+
+    const nozzleY = hy + 59;
+    ctx.fillStyle = '#8f7656';
+    ctx.beginPath();
+    ctx.moveTo(hx - 10, hy + 48);
+    ctx.lineTo(hx + 10, hy + 48);
+    ctx.lineTo(hx + 4, nozzleY);
+    ctx.lineTo(hx - 4, nozzleY);
+    ctx.closePath();
+    ctx.fill();
+
+    if (scan.burning) {
+      const pwr = 0.28 + 0.72 * scan.intensity;
+      const flick = 0.85 + 0.15 * Math.sin(t * 110);
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+
+      const beamG = ctx.createLinearGradient(hx, nozzleY, sx, sy);
+      beamG.addColorStop(0, `rgba(255,65,55,${0.34 * pwr})`);
+      beamG.addColorStop(0.75, `rgba(255,120,65,${0.58 * pwr})`);
+      beamG.addColorStop(1, `rgba(255,225,175,${0.92 * pwr})`);
+      ctx.fillStyle = beamG;
+      ctx.beginPath();
+      ctx.moveTo(hx - 4.5, nozzleY);
+      ctx.lineTo(hx + 4.5, nozzleY);
+      ctx.lineTo(sx + 2.5, sy);
+      ctx.lineTo(sx - 2.5, sy);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = `rgba(255,252,240,${0.96 * pwr})`;
+      ctx.lineWidth = 1.6 + 1.8 * scan.intensity;
+      ctx.beginPath();
+      ctx.moveTo(hx, nozzleY);
+      ctx.lineTo(sx, sy);
+      ctx.stroke();
+
+      const rad = (40 + 70 * scan.intensity) * flick;
+      const bloom = ctx.createRadialGradient(sx, sy, 0, sx, sy, rad);
+      bloom.addColorStop(0, `rgba(255,255,245,${0.96 * pwr})`);
+      bloom.addColorStop(0.16, `rgba(255,185,95,${0.86 * pwr})`);
+      bloom.addColorStop(0.48, `rgba(215,50,42,${0.34 * pwr})`);
+      bloom.addColorStop(1, 'rgba(193,39,45,0)');
+      ctx.fillStyle = bloom;
+      ctx.beginPath();
+      ctx.arc(sx, sy, rad, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+
+    ctx.restore();
+    return scan.burning ? { x: sx, y: sy, intensity: scan.intensity } : null;
   }
 
   // ---- typography & UI helpers ----
@@ -950,12 +1208,12 @@
   }
 
   // ---- editorial copy (no CTA button — Meta adds its own!) ----
-  function drawCopy(t, kick) {
+  function drawCopy(t, kick, scan) {
     const ebA = inOut(t, 0.2 * BEAT, END0 - 0.4 * BEAT, 0.28, 0.25);
     if (ebA > 0) {
       drawPill(CX, L.eyebrowY, 'DÁRKY DŘEVO  ·  LASEROVÉ GRAVÍROVÁNÍ', ebA, {
         dot: true,
-        accent: t >= LAND && t < END0,
+        accent: scan.burning || (t >= DROP_T && t < END0),
         fontSize: L.eyebrowFont,
         px: 22,
         h: L.eyebrowH,
@@ -963,13 +1221,57 @@
       });
     }
 
-    // Acts 1–2: Main line right from the start while the circle ritual & Chosen Wooden Yaris land!
+    // Acts 1–2: Main line right from the start while the circle ritual & laser cutting run!
     maskedText('DÁREK PRO', L.h1Y, L.h1Size, C.ink,
       prog(t, 0.3 * BEAT, 1.3 * BEAT), 1 - prog(t, HERO0 - 0.6 * BEAT, HERO0),
-      { beatPop: t >= LAND ? kick * 0.65 : 0 });
-    maskedText('KAŽDÉHO ŘIDIČE.', L.h2Y, L.h2Size, t >= LAND ? C.gold : C.bright,
+      { beatPop: t >= DROP_T ? kick * 0.65 : 0 });
+    maskedText('KAŽDÉHO ŘIDIČE.', L.h2Y, L.h2Size, t >= DROP_T ? C.gold : C.bright,
       prog(t, 1.0 * BEAT, 2.1 * BEAT), 1 - prog(t, HERO0 - 0.6 * BEAT, HERO0),
-      { beatPop: t >= LAND ? kick * 0.65 : 0 });
+      { beatPop: t >= DROP_T ? kick * 0.65 : 0 });
+
+    // Bottom Zone — Act 2: Live Laser Engraving Telemetry Bar
+    const telA = inOut(t, SCAN0 - 0.25 * BEAT, SCAN1 + 0.9 * BEAT, 0.22, 0.28);
+    if (telA > 0) {
+      const r = scan.reveal;
+      const pct = String(Math.round(r * 100)).padStart(2, '0');
+      const bw = L.telW, bx = CX - bw / 2, by = L.telY;
+
+      ctx.save();
+      ctx.globalAlpha = telA;
+      ctx.fillStyle = 'rgba(12,12,16,0.74)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+      ctx.lineWidth = 1.5;
+      roundRect(ctx, bx - 30, by - 48, bw + 60, 96, 16);
+      ctx.fill();
+      ctx.stroke();
+
+      setFont(24, 600, 'normal');
+      if ('letterSpacing' in ctx) ctx.letterSpacing = '3px';
+      ctx.fillStyle = r < 1 ? C.muted : '#ffd9a8';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillText(r < 1 ? 'LASER GRAVÍRUJE' : 'HOTOVO ✓', bx, by - 8);
+
+      if ('letterSpacing' in ctx) ctx.letterSpacing = '1px';
+      setFont(24, 700, 'normal');
+      ctx.textAlign = 'right';
+      ctx.fillStyle = C.ink;
+      ctx.fillText(`${pct} %`, bx + bw, by - 8);
+      if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      roundRect(ctx, bx, by + 12, bw, 9, 4.5);
+      ctx.fill();
+
+      const fillW = Math.max(9, bw * r);
+      const pg = ctx.createLinearGradient(bx, 0, bx + fillW, 0);
+      pg.addColorStop(0, C.brand);
+      pg.addColorStop(1, '#ff5c4d');
+      ctx.fillStyle = pg;
+      roundRect(ctx, bx, by + 12, fillW, 9, 4.5);
+      ctx.fill();
+      ctx.restore();
+    }
 
     // Act 3: Broadens to ANY photo while Chosen One swaps gallery photos on every bounce!
     maskedText('Z JAKÉKOLIV FOTKY.', L.h1Y, L.h1Size, C.ink,
@@ -1069,10 +1371,11 @@
 
   function render(t, dt, { hideGuides = false } = {}) {
     const uEnd = easeInOut(prog(t, END0, END0 + 1.8 * BEAT));
-    const uPart = easeInOut(prog(t, BEAM0, LAND + 0.5 * BEAT));
-    const beamIn = easeOut3(prog(t, BEAM0, LAND));
+    const uPart = easeInOut(prog(t, ARRIVE0, LAND + 0.4 * BEAT));
+    const beamIn = easeOut3(prog(t, DROP_T - 0.5 * BEAT, DROP_T + 0.4 * BEAT));
     const beamStrength = beamIn * (1 - 0.38 * uEnd);
-    const heroArrived = easeOut3(prog(t, LAND, LAND + 1.2 * BEAT));
+    const heroArrived = easeOut3(prog(t, DROP_T, DROP_T + 1.0 * BEAT));
+    const scan = getScanState(t);
 
     const worldScale = lerp(1.0, L.endScale, uEnd);
     const cy = lerp(L.circleYMain, L.circleYEnd, uEnd);
@@ -1083,25 +1386,24 @@
     const mainBeat = bounceSample(t, 0.9, L.peakHero, 0);
     const beatIdx = Math.floor((t - BEAT0) / BEAT);
 
-    // Big golden shockwave when Chosen One slams down on Beat 10!
-    if (dt > 0 && !landedTriggered && t >= LAND) {
-      emitLandingBurst(CX, heroFloorY, 1.2);
+    // Big golden shockwave when laser finishes on the 14.26 s bass drop (DROP_T)!
+    if (dt > 0 && !landedTriggered && t >= DROP_T) {
+      emitLandingBurst(CX, heroFloorY, 1.25);
       landedTriggered = true;
     }
-    // Periodic beat ripples after Chosen One lands
+    // Periodic beat ripples after drop
     if (dt > 0 && beatIdx !== lastBeatIdx) {
-      if (t >= LAND + BEAT * 0.5) {
+      if (t >= DROP_T + BEAT * 0.5) {
         waves.push({ x: CX, y: heroFloorY + 4, r: 45, maxR: 320 * worldScale, life: 0, max: 0.48, gold: true });
       }
       lastBeatIdx = beatIdx;
     }
-    if (dt > 0 && t >= BEAM0) {
+    if (dt > 0 && t >= DROP_T) {
       emitAmbientEmber(CX, heroFloorY, 170 * worldScale);
     }
-    if (dt > 0) stepParticles(dt);
 
-    // Bass-thump punch (extra big right when Chosen One lands!)
-    const landThump = t >= LAND ? Math.exp(-(t - LAND) * 7) * 18 : 0;
+    // Bass-thump punch (extra big right when laser finishes on the 14.26 s drop!)
+    const landThump = t >= DROP_T ? Math.exp(-(t - DROP_T) * 7) * 18 : 0;
     const thumpY = mainBeat.kick * (6 + 5 * heroArrived * (1 - uEnd)) + landThump;
     const thumpZoom = 1 + mainBeat.kick * (0.010 + 0.008 * heroArrived * (1 - uEnd)) + landThump * 0.0012;
     const pivotY = L.safeTop != null ? (L.safeTop + L.safeBottom) * 0.5 : H * 0.5;
@@ -1124,20 +1426,18 @@
 
     for (let i = 0; i < 8; i++) {
       const baseAngle = (i / 8) * Math.PI * 2 - Math.PI * 0.5 + orbitSpin;
-      // Smoothly transition from spinning full circle into parted amphitheater so front stays open
       let diff = AMPHI_ANGLES[i] - baseAngle;
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
       const ang = baseAngle + diff * uPart + Math.sin(t * 1.1 + i) * 0.03 * uPart;
 
-      const sinA = Math.sin(ang); // -1 = back, +1 = front
-      const cosA = Math.cos(ang); // -1 = left, +1 = right
+      const sinA = Math.sin(ang);
+      const cosA = Math.cos(ang);
       const x = CX + cosA * rx;
       const y = cy + sinA * ry;
-      const depth01 = (sinA + 1) * 0.5; // 0 = back, 1 = front
+      const depth01 = (sinA + 1) * 0.5;
       const depthScale = lerp(0.62, 1.0, depth01) * worldScale;
 
-      // Slight wave offset around the circle in Act 1, snapping into full unison once Chosen One lands!
       const phaseOff = (i % 2) * 0.06 * (1 - heroArrived);
       const b = bounceSample(t, 0.78, L.peakNpc * depthScale, phaseOff);
 
@@ -1147,32 +1447,39 @@
         x,
         y,
         depthScale,
-        facingRight: cosA < 0, // plaque.webp faces left natively -> flip left half so ALL 8 stare inward!
+        facingRight: cosA < 0,
         b,
         dimBack: depth01,
       });
     }
 
-    // Insert the Chosen One at its floor depth so back NPCs render behind it and front-side NPCs frame it
     drawList.push({ kind: 'hero', sortY: heroFloorY - 20 });
     drawList.sort((a, b) => a.sortY - b.sortY);
 
-    // 3. Draw back beam behind Chosen One + depth-sorted entities
+    // 3. Draw back beam behind Chosen One + depth-sorted entities + industrial laser gantry
     for (const item of drawList) {
       if (item.kind === 'hero') {
         drawHeavenlyBeam(t, heroFloorY, beamStrength, mainBeat.kick);
-        drawChosenOne(t, heroFloorY, worldScale, mainBeat.kick);
+        drawChosenOne(t, heroFloorY, worldScale, mainBeat.kick, scan);
       } else {
         drawNpcYaris(item.x, item.y, item.depthScale, item.facingRight, item.b, item.dimBack);
       }
     }
 
+    drawSmoke();
+    const spot = drawLaser(t, heroFloorY, worldScale, scan);
+    if (spot && dt > 0) {
+      const boost = mainBeat.kick > 0.55 ? 1.7 : 1.0;
+      emitLaserSparks(spot.x, spot.y, spot.intensity, boost);
+      emitSmoke(spot.x, spot.y, spot.intensity);
+    }
+    if (dt > 0) stepParticles(dt);
     drawSparks();
     ctx.restore();
 
     // 4. Screen-space typography
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    drawCopy(t, mainBeat.kick);
+    drawCopy(t, mainBeat.kick, scan);
 
     const fade = Math.max(1 - prog(t, 0, 0.16), prog(t, FADE_OUT, T - 0.04));
     if (fade > 0) {
@@ -1195,6 +1502,8 @@
 
   function clearParticles() {
     sparks = [];
+    laserSparks = [];
+    smoke = [];
     waves = [];
     lastBeatIdx = -1;
     landedTriggered = false;
@@ -1266,7 +1575,7 @@
   function seekTo(s) {
     const clamped = ((s % T) + T) % T;
     clearParticles();
-    if (clamped >= LAND) landedTriggered = true;
+    if (clamped >= DROP_T) landedTriggered = true;
     pausedT = clamped;
     start = performance.now() - clamped * 1000;
     lastLoopT = clamped;
